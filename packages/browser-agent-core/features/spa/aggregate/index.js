@@ -67,7 +67,7 @@ export class Aggregate extends FeatureBase {
 
     this.serializer = new Serializer(this)
 
-    const {state, serializer} = this
+    const { state, serializer } = this
 
     const baseEE = ee.get(agentIdentifier) // <-- parent baseEE
     const mutationEE = baseEE.get('mutation')
@@ -153,6 +153,7 @@ export class Aggregate extends FeatureBase {
       register(FN_END, callbackEnd, undefined, baseEE)
       register('cb-end', callbackEnd, undefined, promiseEE)
 
+
       function callbackEnd() {
         state.depth--
         var totalTime = this.jsTime || 0
@@ -217,9 +218,6 @@ export class Aggregate extends FeatureBase {
                 state.currentNode.attrs.custom['actionText'] = value
               }
             }
-            // @ifdef SPA_DEBUG
-            console.timeStamp('start interaction, ID=' + state.currentNode.id + ', evt=' + evName)
-            // @endif
           }
         }
 
@@ -249,7 +247,7 @@ export class Aggregate extends FeatureBase {
         if (node) {
           var interaction = node[INTERACTION]
           interaction[REMAINING]--
-          interaction.checkFinish(state.lastSeenUrl, state.lastSeenRouteName)
+          interaction.checkFinish()
           delete state.timerMap[timerId]
         }
       }, undefined, timerEE)
@@ -260,9 +258,7 @@ export class Aggregate extends FeatureBase {
         var node = state.timerMap[id]
         setCurrentNode(node)
         delete state.timerMap[id]
-        if (node) {
-          node[INTERACTION][REMAINING]--
-        }
+        if (node) node[INTERACTION][REMAINING]--
       }, undefined, timerEE)
 
       /**
@@ -299,7 +295,7 @@ export class Aggregate extends FeatureBase {
           node.dt = this.dt
           node.jsEnd = node.start = this.startTime
           node[INTERACTION][REMAINING]++
-        }
+          }
       }, undefined, xhrEE)
 
       register('xhr-resolved', function () {
@@ -315,6 +311,7 @@ export class Aggregate extends FeatureBase {
           attrs.metrics = this.metrics
 
           node.finish(this.endTime)
+          if (!!this.currentNode && !!this.currentNode.interaction) this.currentNode.interaction.checkFinish()
         }
       }, undefined, baseEE)
 
@@ -388,14 +385,14 @@ export class Aggregate extends FeatureBase {
         if (state.currentNode) {
           this[SPA_NODE] = state.currentNode
           state.currentNode[INTERACTION][REMAINING]++
-        }
+          }
       }, undefined, fetchEE)
 
       register(FETCH_BODY + 'end', function (args, ctx, bodyPromise) {
         var node = this[SPA_NODE]
         if (node) {
           node[INTERACTION][REMAINING]--
-        }
+          }
       }, undefined, fetchEE)
 
       register(FETCH_DONE, function (err, res) {
@@ -420,6 +417,7 @@ export class Aggregate extends FeatureBase {
 
       register('newURL', function (url, hashChangedDuringCb) {
         if (state.currentNode) {
+          state.currentNode[INTERACTION].setNewURL(url)
           if (state.lastSeenUrl !== url) {
             state.currentNode[INTERACTION].routeChange = true
           }
@@ -475,12 +473,12 @@ export class Aggregate extends FeatureBase {
           // fires, it has already executed), and 2) it would require storing the context
           // probably on the DOM node and restoring in all callbacks, which is a different
           // use case than lazy loading.
-          interaction.checkFinish(state.lastSeenUrl, state.lastSeenRouteName)
+          interaction.checkFinish()
         }
 
         function onerror() {
           interaction[REMAINING]--
-          interaction.checkFinish(state.lastSeenUrl, state.lastSeenRouteName)
+          interaction.checkFinish()
         }
       })
 
@@ -498,15 +496,13 @@ export class Aggregate extends FeatureBase {
         setCurrentNode(ctx[SPA_NODE])
       }, undefined, promiseEE)
 
-      function getOrSetIxn(t){
-        console.log("ixn is -- ", state.currentNode ? state.currentNode[INTERACTION] : new Interaction('api', t, state.lastSeenUrl, state.lastSeenRouteName, onInteractionFinished, agentIdentifier))
-        return state.currentNode ? state.currentNode[INTERACTION] : new Interaction('api', t, state.lastSeenUrl, state.lastSeenRouteName, onInteractionFinished, agentIdentifier)
-      }
-
-      register(INTERACTION_API + 'get',  function(t) {
-        var interaction = this.ixn = state.currentNode ? state.currentNode[INTERACTION] : new Interaction('api', t, state.lastSeenUrl, state.lastSeenRouteName, onInteractionFinished, agentIdentifier)
+      register(INTERACTION_API + 'get', function (t) {
+        var interaction
+        if (state?.currentNode?.[INTERACTION]) interaction = this.ixn = state.currentNode[INTERACTION]
+        else if (state?.prevNode?.end === null && state?.prevNode?.[INTERACTION]?.root?.[INTERACTION]?.eventName != 'initialPageLoad') interaction = this.ixn = state.prevNode[INTERACTION]
+        else interaction = this.ixn = new Interaction('api', t, state.lastSeenUrl, state.lastSeenRouteName, onInteractionFinished, agentIdentifier)
         if (!state.currentNode) {
-          interaction.checkFinish(state.lastSeenUrl, state.lastSeenRouteName)
+          interaction.checkFinish()
           if (state.depth) setCurrentNode(interaction.root)
         }
       }, undefined, baseEE)
@@ -549,6 +545,7 @@ export class Aggregate extends FeatureBase {
         var ctx = baseEE.context(store)
         if (!name) {
           ctx.inc = ++interaction[REMAINING]
+
           return (ctx[SPA_NODE] = parent)
         }
         ctx[SPA_NODE] = parent.child('customTracer', timestamp, name)
@@ -568,7 +565,7 @@ export class Aggregate extends FeatureBase {
         } else if (node) {
           node.finish(timestamp)
         }
-        hasCb ? setCurrentNode(node) : interaction.checkFinish(state.lastSeenUrl, state.lastSeenRouteName)
+        hasCb ? setCurrentNode(node) : interaction.checkFinish()
       }
 
       register(INTERACTION_API + 'getContext', function (t, cb) {
@@ -584,6 +581,7 @@ export class Aggregate extends FeatureBase {
 
       register('api-routeName', function (t, currentRouteName) {
         state.lastSeenRouteName = currentRouteName
+        if (state.currentNode) state.currentNode[INTERACTION].setNewRoute(currentRouteName)
       }, undefined, baseEE)
 
       function activeNodeFor(interaction) {
@@ -609,7 +607,7 @@ export class Aggregate extends FeatureBase {
     function setCurrentNode(newNode) {
       if (!state.pageLoaded && !newNode && state.initialPageLoad) newNode = state.initialPageLoad.root
       if (state.currentNode) {
-        state.currentNode[INTERACTION].checkFinish(state.lastSeenUrl, state.lastSeenRouteName)
+        state.currentNode[INTERACTION].checkFinish()
       }
 
       state.prevNode = state.currentNode

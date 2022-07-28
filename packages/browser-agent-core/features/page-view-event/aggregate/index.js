@@ -14,8 +14,14 @@ const jsonp = 'NREUM.setToken'
 export class Aggregate extends FeatureBase {
   constructor(agentIdentifier, aggregator) {
     super(agentIdentifier, aggregator)
-    this.getScheme = () => getConfigurationValue(this.agentIdentifier, 'ssl') === false ? 'http' : 'https'
+    this.sendRum()
+  }
 
+  getScheme() { 
+    return getConfigurationValue(this.agentIdentifier, 'ssl') === false ? 'http' : 'https' 
+  }
+
+  sendRum() {
     const info = getInfo(this.agentIdentifier)
     if (!info.beacon) return
     if (info.queueTime) this.aggregator.store('measures', 'qt', { value: info.queueTime })
@@ -24,6 +30,7 @@ export class Aggregate extends FeatureBase {
     // some time in the past some code will have called stopwatch.mark('starttime', Date.now())
     // calling measure like this will create a metric that measures the time differential between
     // the two marks.
+    // // NREUM.debug("measure!")
     measure(this.aggregator, 'be', 'starttime', 'firstbyte')
     measure(this.aggregator, 'fe', 'firstbyte', 'onload')
     measure(this.aggregator, 'dc', 'firstbyte', 'domContent')
@@ -50,7 +57,7 @@ export class Aggregate extends FeatureBase {
     chunksForQueryString.push(param('us', info.user))
     chunksForQueryString.push(param('ac', info.account))
     chunksForQueryString.push(param('pr', info.product))
-    chunksForQueryString.push(param('af', Object.keys(agentRuntime.features).join(',') ))
+    chunksForQueryString.push(param('af', Object.keys(agentRuntime.features).join(',')))
 
     if (window.performance && typeof (window.performance.timing) !== 'undefined') {
       var navTimingApiData = ({

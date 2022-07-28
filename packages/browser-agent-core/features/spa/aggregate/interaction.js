@@ -43,7 +43,7 @@ export function Interaction(eventName, timestamp, url, routeName, onFinished, ag
 
 var InteractionPrototype = Interaction.prototype
 
-InteractionPrototype.checkFinish = function checkFinish(url, routeName) {
+InteractionPrototype.checkFinish = function checkFinish() {
   var interaction = this
  
   if (interaction.remaining) {
@@ -59,19 +59,22 @@ InteractionPrototype.checkFinish = function checkFinish(url, routeName) {
 
   interaction._resetFinishCheck()
 
-  var attrs = this.root.attrs
-  attrs.newURL = url
-  attrs.newRoute = routeName
-
-
   interaction.checkingFinish = true
-  interaction.finishTimer = originalSetTimeout(function () {
+  interaction.finishTimer = originalSetTimeout(() => {
     interaction.checkingFinish = false
-    interaction.finishTimer = originalSetTimeout(function () {
+    interaction.finishTimer = originalSetTimeout(() => {
       interaction.finishTimer = null
       if (!interaction.remaining) interaction.finish()
     }, 1)
   }, 0)
+}
+
+InteractionPrototype.setNewURL = function setNewURL(url){
+  this.root.attrs.newURL = url
+}
+
+InteractionPrototype.setNewRoute = function setNewRoute(route){
+  this.root.attrs.newRoute = route
 }
 
 InteractionPrototype.onNodeAdded = function onNodeAdded() {
@@ -92,11 +95,7 @@ InteractionPrototype.finish = function finishInteraction() {
   var root = interaction.root
   if (root.end !== null) return
   var endTimestamp = Math.max(interaction.lastCb, interaction.lastFinish)
-  // @ifdef SPA_DEBUG
   var delta = now() - endTimestamp
-  console.timeStamp('finish interaction, ID=' + root.id + ', lastTime = ' + delta + ' ms ago, urlChange=' + this.routeChange)
-  // @endif
-
   var attrs = root.attrs
   var customAttrs = attrs.custom
 

@@ -45,6 +45,8 @@ class AgentInjectorTransform extends AssetTransform {
     this.defaultAgentConfig = {}
     this.assetServer = assetServer
     this.router = router
+
+    this.polyfills = fs.readFileSync(`${this.buildDir}/nr-polyfills.min.js`)
   }
 
   parseConfigFromQueryString(params) {
@@ -221,6 +223,7 @@ class AgentInjectorTransform extends AssetTransform {
             .replace('{config}', tagify(disableSsl + configContent))
             .replace('{init}', tagify(disableSsl + initContent))
             .replace('{script}', `<script src="${params.script}" charset="utf-8"></script>`)
+            .replace('{polyfills}', `<script type="text/javascript">${this.polyfills}</script>`)
 
           if (!!htmlPackageTags.length && !!packageFiles.length) {
             packageFiles.forEach(pkg => {
@@ -257,16 +260,29 @@ class BrowserifyTransform extends AssetTransform {
     if (result) return callback(null, result)
 
     browserify(assetPath)
-      .transform("babelify", {
-        presets: ["@babel/preset-env",],
+    .transform("babelify", {
+        presets: [
+          ["@babel/preset-env", {
+            loose: true,
+            targets: {
+              browsers: [
+                "chrome >= 60",
+                "safari >= 11",
+                "firefox >= 56",
+                "ios >= 10.3",
+                "ie >= 11",
+                "edge >= 60"
+              ]
+            }
+          }]
+        ],
         plugins: ["@babel/plugin-syntax-dynamic-import", '@babel/plugin-transform-modules-commonjs'],
         global: true
       })
       .transform(preprocessify())
       .bundle((err, buf) => {
-        if (err) console.log('bundle err!', assetPath)
         if (err) return callback(err)
-        
+
         let content = buf.toString()
 
         if (this.config.cache) this.browserifyCache[assetPath] = content
